@@ -1,0 +1,59 @@
+# 将该文件，build_nvmdb.sh和output.tar.gz复制到与项目根目录同级后在根目录运行
+# 即根目录一共包含四个文件（夹）
+# docker build -t centos-ssh:7.9 .
+# 启动容器
+# docker run -d --name centos-ssh --network host -v /mnt:/mnt centos-ssh:7.9
+FROM centos:7.9.2009
+
+ENV https_proxy=http://127.0.0.1:7890
+ENV http_proxy=http://127.0.0.1:7890
+ENV all_proxy=socks5://127.0.0.1:7890
+ENV no_proxy=localhost,127.0.0.1
+
+# 增加代理
+RUN echo "proxy=http://127.0.0.1:7890" >> /etc/yum.conf
+
+ENV TERM=xterm
+
+#RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo && \
+#    sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://mirror.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
+
+RUN yum install -y openssh-server sudo
+
+# 创建 SSH 目录
+RUN mkdir /var/run/sshd
+
+# 生成主机密钥文件
+RUN ssh-keygen -A
+
+# 修改 SSH 配置文件以允许密码登录
+RUN sed -i 's/#Port 22/Port 30022/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PermitRootLogin yes/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+RUN echo 'root:123456' | chpasswd
+
+RUN groupadd -r user && useradd -r -g user -m -d /home/user -s /bin/bash user
+
+RUN echo 'user:123456' | chpasswd
+
+RUN echo "user ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+USER user
+
+WORKDIR /home/user
+
+COPY --chown=user:user NextGenDB /home/user/NextGenDB
+
+COPY --chown=user:user build_nvmdb.sh /home/user/build_nvmdb.sh
+
+COPY --chown=user:user output.tar.gz /home/user/output.tar.gz
+
+RUN sh /home/user/build_nvmdb.sh
+
+USER root
+
+CMD ["/usr/sbin/sshd", "-D"]
+
+EXPOSE 30022
